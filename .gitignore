@@ -1,0 +1,19 @@
+# Editor / OS cruft
+*.swp
+*.swo
+*.tmp
+*.log
+*.bak
+*~
+.idea/
+.vscode/
+*.DS_Store
+Thumbs.db
+
+.env
+
+# ignore *all* data under postgresql/data/
+postgresql/data/*
+
+# except the .gitignore in that folder
+!postgresql/data/.gitignore

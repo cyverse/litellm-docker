@@ -1,0 +1,24 @@
+docs
+cookbook
+.circleci
+.github
+tests
+.git
+.github
+.circleci
+.devcontainer
+*.tgz
+log.txt
+docker/Dockerfile.*
+
+# project files we don't need in the image
+docker-compose.yaml
+.env
+.env_example
+generate-patch.sh
+Makefile
+Dockerfile.*
+run-tests.sh
+.gitignore
+/postgresql/*
+/patch_tests/*

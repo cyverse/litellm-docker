@@ -1,0 +1,522 @@
+From 565709b37c97f22734b6179a5da8fedb24c0fce6 Mon Sep 17 00:00:00 2001
+From: Hagan Franks <224019+hagan@users.noreply.github.com>
+Date: Wed, 30 Apr 2025 13:37:56 -0700
+Subject: [PATCH 1/4] fix team member_update issue
+
+---
+ .../management_endpoints/team_endpoints.py    | 37 +++++++++----------
+ 1 file changed, 18 insertions(+), 19 deletions(-)
+
+diff --git a/litellm/proxy/management_endpoints/team_endpoints.py b/litellm/proxy/management_endpoints/team_endpoints.py
+index 14d0bb17e..fabc4e5b5 100644
+--- a/litellm/proxy/management_endpoints/team_endpoints.py
++++ b/litellm/proxy/management_endpoints/team_endpoints.py
+@@ -108,15 +108,13 @@ async def get_all_team_memberships(
+ ) -> List[LiteLLM_TeamMembership]:
+     """Get all team memberships for a given user"""
+     ## GET ALL MEMBERSHIPS ##
+-    if not isinstance(user_id, str):
+-        user_id = str(user_id)
++    if user_id is None:
++        where_obj = {"team_id": {"in": team_id}}
++    else:
++        where_obj = {"user_id": str(user_id), "team_id": {"in": team_id}}
+ 
+     team_memberships = await prisma_client.db.litellm_teammembership.find_many(
+-        where=(
+-            {"user_id": user_id, "team_id": {"in": team_id}}
+-            if user_id is not None
+-            else {"team_id": {"in": team_id}}
+-        ),
++        where=where_obj,
+         include={"litellm_budget_table": True},
+     )
+ 
+@@ -162,7 +160,7 @@ async def new_team(  # noqa: PLR0915
+     - budget_duration: Optional[str] - The duration of the budget for the team. Doc [here](https://docs.litellm.ai/docs/proxy/team_budgets)
+     - models: Optional[list] - A list of models associated with the team - all keys for this team_id will have at most, these models. If empty, assumes all models are allowed.
+     - blocked: bool - Flag indicating if the team is blocked or not - will stop all calls from keys with this team_id.
+-    - members: Optional[List] - Control team members via `/team/member/add` and `/team/member/delete`. 
++    - members: Optional[List] - Control team members via `/team/member/add` and `/team/member/delete`.
+     - tags: Optional[List[str]] - Tags for [tracking spend](https://litellm.vercel.app/docs/proxy/enterprise#tracking-spend-for-custom-tags) and/or doing [tag-based routing](https://litellm.vercel.app/docs/proxy/tag_routing).
+     - organization_id: Optional[str] - The organization id of the team. Default is None. Create via `/organization/new`.
+     - model_aliases: Optional[dict] - Model aliases for the team. [Docs](https://docs.litellm.ai/docs/proxy/team_based_routing#create-team-with-model-alias)
+@@ -192,8 +190,8 @@ async def new_team(  # noqa: PLR0915
+     --header 'Authorization: Bearer sk-1234' \
+     --header 'Content-Type: application/json' \
+     --data '{
+-                "team_alias": "QA Prod Bot", 
+-                "max_budget": 0.000000001, 
++                "team_alias": "QA Prod Bot",
++                "max_budget": 0.000000001,
+                 "budget_duration": "1d"
+             }'
+     ```
+@@ -514,7 +512,7 @@ async def update_team(
+     ),
+ ):
+     """
+-    Use `/team/member_add` AND `/team/member/delete` to add/remove new team members  
++    Use `/team/member_add` AND `/team/member/delete` to add/remove new team members
+ 
+     You can now update team budget / rate limits via /team/update
+ 
+@@ -1187,15 +1185,16 @@ async def team_member_update(
+                     "max_budget": data.max_budget_in_team,
+                     "created_by": user_api_key_dict.user_id or "",
+                     "updated_by": user_api_key_dict.user_id or "",
+-                }
+-            )
+-
+-            await prisma_client.db.litellm_teammembership.create(
+-                data={
+-                    "team_id": data.team_id,
+-                    "user_id": received_user_id,
+-                    "budget_id": new_budget.budget_id,
++                    "team_membership": {
++                        "create": {
++                        "team_id": data.team_id,
++                        "user_id": received_user_id,
++                        # set other values here?
++                        # "spend": 0.0,
++                        }
++                    },
+                 },
++                include={"team_membership": True},
+             )
+         elif identified_budget_id is not None:
+             await prisma_client.db.litellm_budgettable.update(
+-- 
+2.43.0
+
+
+From b0337ac3fec64a23dd69cb908ab5e94cef4f6c75 Mon Sep 17 00:00:00 2001
+From: Hagan Franks <224019+hagan@users.noreply.github.com>
+Date: Mon, 5 May 2025 15:13:34 -0700
+Subject: [PATCH 2/4] added unit test for proxy management budget endpoint
+
+---
+ .../test_budget_endpoints.py                  | 132 ++++++++++++++++++
+ 1 file changed, 132 insertions(+)
+ create mode 100644 tests/litellm/proxy/management_endpoints/test_budget_endpoints.py
+
+diff --git a/tests/litellm/proxy/management_endpoints/test_budget_endpoints.py b/tests/litellm/proxy/management_endpoints/test_budget_endpoints.py
+new file mode 100644
+index 000000000..5dab71a16
+--- /dev/null
++++ b/tests/litellm/proxy/management_endpoints/test_budget_endpoints.py
+@@ -0,0 +1,132 @@
++# tests/test_budget_endpoints.py
++
++import os
++import sys
++import types
++import pytest
++from unittest.mock import AsyncMock, MagicMock
++from fastapi.testclient import TestClient
++
++import litellm.proxy.proxy_server as ps
++from litellm.proxy.proxy_server import app
++from litellm.proxy._types import UserAPIKeyAuth, LitellmUserRoles, CommonProxyErrors
++
++import litellm.proxy.management_endpoints.budget_management_endpoints as bm
++
++sys.path.insert(
++    0, os.path.abspath("../../../")
++)  # Adds the parent directory to the system path
++
++
++@pytest.fixture
++def client_and_mocks(monkeypatch):
++    # Setup MagicMock Prisma
++    mock_prisma = MagicMock()
++    mock_table  = MagicMock()
++    mock_table.create = AsyncMock(side_effect=lambda *, data: data)
++    mock_table.update = AsyncMock(side_effect=lambda *, where, data: {**where, **data})
++
++    mock_prisma.db = types.SimpleNamespace(
++        litellm_budgettable = mock_table,
++        litellm_dailyspend   = mock_table,
++    )
++
++    # Monkeypatch Mocked Prisma client into the server module
++    monkeypatch.setattr(ps, "prisma_client", mock_prisma)
++
++    # override returned auth user
++    fake_user = UserAPIKeyAuth(
++        user_id="test_user",
++        user_role=LitellmUserRoles.INTERNAL_USER,
++    )
++    app.dependency_overrides[ps.user_api_key_auth] = lambda: fake_user
++
++    client = TestClient(app)
++
++    yield client, mock_prisma, mock_table
++
++    # teardown
++    app.dependency_overrides.clear()
++    monkeypatch.setattr(ps, "prisma_client", ps.prisma_client)
++
++
++@pytest.mark.asyncio
++async def test_new_budget_success(client_and_mocks):
++    client, _, mock_table = client_and_mocks
++
++    # Call /budget/new endpoint
++    payload = {
++        "budget_id": "budget_123",
++        "max_budget": 42.0,
++        "budget_duration": "30d",
++    }
++    resp = client.post("/budget/new", json=payload)
++    assert resp.status_code == 200, resp.text
++
++    body = resp.json()
++    assert body["budget_id"] == payload["budget_id"]
++    assert body["max_budget"] == payload["max_budget"]
++    assert body["budget_duration"] == payload["budget_duration"]
++    assert body["created_by"] == "test_user"
++    assert body["updated_by"] == "test_user"
++
++    mock_table.create.assert_awaited_once()
++
++
++@pytest.mark.asyncio
++async def test_new_budget_db_not_connected(client_and_mocks, monkeypatch):
++    client, mock_prisma, mock_table = client_and_mocks
++
++    # override the prisma_client that the handler imports at runtime
++    import litellm.proxy.proxy_server as ps
++    monkeypatch.setattr(ps, "prisma_client", None)
++
++    # Call /budget/new endpoint
++    resp = client.post("/budget/new", json={"budget_id": "no_db", "max_budget": 1.0})
++    assert resp.status_code == 500
++    detail = resp.json()["detail"]
++    assert detail["error"] == CommonProxyErrors.db_not_connected_error.value
++
++
++@pytest.mark.asyncio
++async def test_update_budget_success(client_and_mocks, monkeypatch):
++    client, mock_prisma, mock_table = client_and_mocks
++
++    payload = {
++        "budget_id": "budget_456",
++        "max_budget": 99.0,
++        "soft_budget": 50.0,
++    }
++    resp = client.post("/budget/update", json=payload)
++    assert resp.status_code == 200, resp.text
++    body = resp.json()
++    assert body["budget_id"] == payload["budget_id"]
++    assert body["max_budget"] == payload["max_budget"]
++    assert body["soft_budget"] == payload["soft_budget"]
++    assert body["updated_by"] == "test_user"
++
++
++@pytest.mark.asyncio
++async def test_update_budget_missing_id(client_and_mocks, monkeypatch):
++    client, mock_prisma, mock_table = client_and_mocks
++
++    payload = {"max_budget": 10.0}
++    resp = client.post("/budget/update", json=payload)
++    assert resp.status_code == 400, resp.text
++    detail = resp.json()["detail"]
++    assert detail["error"] == "budget_id is required"
++
++
++@pytest.mark.asyncio
++async def test_update_budget_db_not_connected(client_and_mocks, monkeypatch):
++    client, mock_prisma, mock_table = client_and_mocks
++
++    # override the prisma_client that the handler imports at runtime
++    import litellm.proxy.proxy_server as ps
++    monkeypatch.setattr(ps, "prisma_client", None)
++
++    payload = {"budget_id": "any", "max_budget": 1.0}
++    resp = client.post("/budget/update", json=payload)
++    assert resp.status_code == 500
++    detail = resp.json()["detail"]
++    assert detail["error"] == CommonProxyErrors.db_not_connected_error.value
+-- 
+2.43.0
+
+
+From 28733c6871fbb93a788da0150b22e84bf199b0c1 Mon Sep 17 00:00:00 2001
+From: Hagan Franks <224019+hagan@users.noreply.github.com>
+Date: Mon, 5 May 2025 16:31:56 -0700
+Subject: [PATCH 3/4] fix lint issue with new_budget
+
+---
+ .../management_endpoints/team_endpoints.py      | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/litellm/proxy/management_endpoints/team_endpoints.py b/litellm/proxy/management_endpoints/team_endpoints.py
+index fabc4e5b5..851d1883c 100644
+--- a/litellm/proxy/management_endpoints/team_endpoints.py
++++ b/litellm/proxy/management_endpoints/team_endpoints.py
+@@ -104,14 +104,19 @@ def _is_available_team(team_id: str, user_api_key_dict: UserAPIKeyAuth) -> bool:
+ 
+ 
+ async def get_all_team_memberships(
+-    prisma_client: PrismaClient, team_id: List[str], user_id: Optional[str] = None
++    prisma_client: PrismaClient, team_ids: List[str], user_id: Optional[str] = None
+ ) -> List[LiteLLM_TeamMembership]:
+     """Get all team memberships for a given user"""
+     ## GET ALL MEMBERSHIPS ##
+-    if user_id is None:
+-        where_obj = {"team_id": {"in": team_id}}
+-    else:
+-        where_obj = {"user_id": str(user_id), "team_id": {"in": team_id}}
++    where_obj: Dict[str, Dict[str, List[str]]] = {
++        "team_id": {"in": team_ids}
++    }
++    if user_id is not None:
++        where_obj["user_id"] = {"in": [user_id]}
++    # if user_id is None:
++    #     where_obj = {"team_id": {"in": team_id}}
++    # else:
++    #     where_obj = {"user_id": str(user_id), "team_id": {"in": team_id}}
+ 
+     team_memberships = await prisma_client.db.litellm_teammembership.find_many(
+         where=where_obj,
+@@ -1180,7 +1185,7 @@ async def team_member_update(
+     ### upsert new budget
+     if data.max_budget_in_team is not None:
+         if identified_budget_id is None:
+-            new_budget = await prisma_client.db.litellm_budgettable.create(
++            _ = await prisma_client.db.litellm_budgettable.create(
+                 data={
+                     "max_budget": data.max_budget_in_team,
+                     "created_by": user_api_key_dict.user_id or "",
+-- 
+2.43.0
+
+
+From 508c11de96556ed14c4a521730842e60b3dee6b0 Mon Sep 17 00:00:00 2001
+From: Hagan Franks <224019+hagan@users.noreply.github.com>
+Date: Wed, 14 May 2025 11:50:03 -0700
+Subject: [PATCH 4/4] delete in the budget table doesn't update teammembership
+ table
+
+---
+ schema.prisma | 73 +++++++++++++++++++++++++++------------------------
+ 1 file changed, 39 insertions(+), 34 deletions(-)
+
+diff --git a/schema.prisma b/schema.prisma
+index 4c9856909..149c0b576 100644
+--- a/schema.prisma
++++ b/schema.prisma
+@@ -16,7 +16,7 @@ model LiteLLM_BudgetTable {
+   tpm_limit     BigInt?
+   rpm_limit     BigInt?
+   model_max_budget Json?
+-  budget_duration String? 
++  budget_duration String?
+   budget_reset_at DateTime?
+   created_at    DateTime               @default(now()) @map("created_at")
+   created_by String
+@@ -25,8 +25,8 @@ model LiteLLM_BudgetTable {
+   organization LiteLLM_OrganizationTable[] // multiple orgs can have the same budget
+   keys LiteLLM_VerificationToken[] // multiple keys can have the same budget
+   end_users LiteLLM_EndUserTable[] // multiple end-users can have the same budget
+-  team_membership LiteLLM_TeamMembership[] // budgets of Users within a Team 
+-  organization_membership LiteLLM_OrganizationMembership[] // budgets of Users within a Organization 
++  team_membership LiteLLM_TeamMembership[] // budgets of Users within a Team
++  organization_membership LiteLLM_OrganizationMembership[] // budgets of Users within a Organization
+ }
+ 
+ // Models on proxy
+@@ -34,7 +34,7 @@ model LiteLLM_CredentialsTable {
+   credential_id String @id @default(uuid())
+   credential_name String @unique
+   credential_values Json
+-  credential_info Json? 
++  credential_info Json?
+   created_at    DateTime               @default(now()) @map("created_at")
+   created_by String
+   updated_at    DateTime               @default(now()) @updatedAt @map("updated_at")
+@@ -44,9 +44,9 @@ model LiteLLM_CredentialsTable {
+ // Models on proxy
+ model LiteLLM_ProxyModelTable {
+   model_id String @id @default(uuid())
+-  model_name String 
++  model_name String
+   litellm_params Json
+-  model_info Json? 
++  model_info Json?
+   created_at    DateTime               @default(now()) @map("created_at")
+   created_by String
+   updated_at    DateTime               @default(now()) @updatedAt @map("updated_at")
+@@ -66,7 +66,7 @@ model LiteLLM_OrganizationTable {
+     updated_at    DateTime               @default(now()) @updatedAt @map("updated_at")
+     updated_by String
+     litellm_budget_table LiteLLM_BudgetTable?   @relation(fields: [budget_id], references: [budget_id])
+-    teams LiteLLM_TeamTable[] 
++    teams LiteLLM_TeamTable[]
+     users LiteLLM_UserTable[]
+     keys LiteLLM_VerificationToken[]
+     members LiteLLM_OrganizationMembership[] @relation("OrganizationToMembership")
+@@ -84,10 +84,10 @@ model LiteLLM_ModelTable {
+ }
+ 
+ 
+-// Assign prod keys to groups, not individuals 
++// Assign prod keys to groups, not individuals
+ model LiteLLM_TeamTable {
+ 		team_id    String @id @default(uuid())
+-    team_alias  String? 
++    team_alias  String?
+     organization_id String?
+     admins String[]
+     members String[]
+@@ -99,7 +99,7 @@ model LiteLLM_TeamTable {
+     max_parallel_requests Int?
+     tpm_limit     BigInt?
+     rpm_limit     BigInt?
+-    budget_duration String? 
++    budget_duration String?
+     budget_reset_at DateTime?
+     blocked Boolean @default(false)
+     created_at    DateTime               @default(now()) @map("created_at")
+@@ -115,7 +115,7 @@ model LiteLLM_TeamTable {
+ // Track spend, rate limit, budget Users
+ model LiteLLM_UserTable {
+ 		user_id    String @id
+-    user_alias String? 
++    user_alias String?
+     team_id    String?
+     sso_user_id String? @unique
+     organization_id String?
+@@ -130,7 +130,7 @@ model LiteLLM_UserTable {
+     max_parallel_requests Int?
+     tpm_limit     BigInt?
+     rpm_limit     BigInt?
+-    budget_duration String? 
++    budget_duration String?
+     budget_reset_at DateTime?
+     allowed_cache_controls String[] @default([])
+     model_spend      Json @default("{}")
+@@ -165,8 +165,8 @@ model LiteLLM_VerificationToken {
+     blocked Boolean?
+     tpm_limit     BigInt?
+     rpm_limit     BigInt?
+-    max_budget Float?    
+-    budget_duration String? 
++    max_budget Float?
++    budget_duration String?
+     budget_reset_at DateTime?
+     allowed_cache_controls String[] @default([])
+     allowed_routes   String[] @default([])
+@@ -221,7 +221,7 @@ model LiteLLM_SpendLogs {
+   cache_hit           String?   @default("")
+   cache_key           String?   @default("")
+   request_tags        Json?     @default("[]")
+-  team_id             String? 
++  team_id             String?
+   end_user            String?
+   requester_ip_address String?
+   messages            Json?     @default("{}")
+@@ -237,7 +237,7 @@ model LiteLLM_ErrorLogs {
+   request_id          String   @id @default(uuid())
+   startTime           DateTime // Assuming start_time is a DateTime field
+   endTime             DateTime // Assuming end_time is a DateTime field
+-  api_base            String   @default("") 
++  api_base            String   @default("")
+   model_group         String   @default("")      // public model_name / model_group
+   litellm_model_name  String   @default("")      // model passed to litellm
+   model_id            String   @default("")      // ID of model in ProxyModelTable
+@@ -250,7 +250,7 @@ model LiteLLM_ErrorLogs {
+ // Beta - allow team members to request access to a model
+ model LiteLLM_UserNotifications {
+   request_id          String @id
+-  user_id             String 
++  user_id             String
+   models              String[]
+   justification       String
+   status              String // approved, disapproved, pending
+@@ -262,7 +262,12 @@ model LiteLLM_TeamMembership {
+   team_id    String
+   spend      Float    @default(0.0)
+   budget_id String?
+-  litellm_budget_table LiteLLM_BudgetTable?   @relation(fields: [budget_id], references: [budget_id])
++  litellm_budget_table LiteLLM_BudgetTable?   @relation(
++      fields: [budget_id],
++      references: [budget_id],
++      onDelete:   Cascade,
++      onUpdate:   Cascade
++    )
+   @@id([user_id, team_id])
+ }
+ 
+@@ -280,8 +285,8 @@ model LiteLLM_OrganizationMembership {
+   user LiteLLM_UserTable @relation(fields: [user_id], references: [user_id])
+   organization LiteLLM_OrganizationTable @relation("OrganizationToMembership", fields: [organization_id], references: [organization_id])
+   litellm_budget_table LiteLLM_BudgetTable?   @relation(fields: [budget_id], references: [budget_id])
+-  
+-  
++
++
+ 
+   @@id([user_id, organization_id])
+   @@unique([user_id, organization_id])
+@@ -314,7 +319,7 @@ model LiteLLM_AuditLog {
+   action             String      // create, update, delete
+   table_name         String      // on of  LitellmTableNames.TEAM_TABLE_NAME, LitellmTableNames.USER_TABLE_NAME, LitellmTableNames.PROXY_MODEL_TABLE_NAME,
+   object_id          String      // id of the object being audited. This can be the key id, team id, user id, model id
+-  before_value       Json?       // value of the row 
++  before_value       Json?       // value of the row
+   updated_values     Json?       // value of the row after change
+ }
+ 
+@@ -323,10 +328,10 @@ model LiteLLM_DailyUserSpend {
+   id                  String   @id @default(uuid())
+   user_id             String
+   date                String
+-  api_key             String   
+-  model               String   
+-  model_group         String?  
+-  custom_llm_provider String?  
++  api_key             String
++  model               String
++  model_group         String?
++  custom_llm_provider String?
+   prompt_tokens       Int      @default(0)
+   completion_tokens   Int      @default(0)
+   cache_read_input_tokens     Int      @default(0)
+@@ -350,10 +355,10 @@ model LiteLLM_DailyTeamSpend {
+   id                  String   @id @default(uuid())
+   team_id             String
+   date                String
+-  api_key             String   
+-  model               String   
+-  model_group         String?  
+-  custom_llm_provider String?  
++  api_key             String
++  model               String
++  model_group         String?
++  custom_llm_provider String?
+   prompt_tokens       Int      @default(0)
+   completion_tokens   Int      @default(0)
+   cache_read_input_tokens     Int      @default(0)
+@@ -375,12 +380,12 @@ model LiteLLM_DailyTeamSpend {
+ // Track daily team spend metrics per model and key
+ model LiteLLM_DailyTagSpend {
+   id                  String   @id @default(uuid())
+-  tag                 String   
++  tag                 String
+   date                String
+-  api_key             String   
+-  model               String   
+-  model_group         String?  
+-  custom_llm_provider String?  
++  api_key             String
++  model               String
++  model_group         String?
++  custom_llm_provider String?
+   prompt_tokens       Int      @default(0)
+   completion_tokens   Int      @default(0)
+   cache_read_input_tokens     Int      @default(0)
+-- 
+2.43.0
+

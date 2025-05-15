@@ -1,0 +1,33 @@
+# setup a postgres database and litellm
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres
+    # use .env for environment variables
+    env_file:
+      - .env
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  litellm:
+    # can I use an .env file for the image name?
+    # image: docker.io/library/0250513-cyverse-v1.67.7-stable
+    image: docker.io/library/v1.67.4-stable-20250515
+    container_name: litellm
+    # use .env for environment variables
+    env_file:
+      - .env
+    ports:
+      - "4000:4000"
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      device: ./postgresql/data
+      o: bind
