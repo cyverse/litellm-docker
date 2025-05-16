@@ -10,10 +10,8 @@
 *.DS_Store
 Thumbs.db
 
-.env
-
 # ignore *all* data under postgresql/data/
-postgresql/data/*
+postgresql/*
 
 # except the .gitignore in that folder
-!postgresql/data/.gitignore
+!postgresql/.gitignore

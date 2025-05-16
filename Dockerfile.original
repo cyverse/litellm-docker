@@ -3,10 +3,9 @@ ARG LITELLM_BUILD_IMAGE=cgr.dev/chainguard/python:latest-dev
 
 # Runtime image
 ARG LITELLM_RUNTIME_IMAGE=cgr.dev/chainguard/python:latest-dev
+
 # Builder stage
 FROM $LITELLM_BUILD_IMAGE AS builder
-
-
 
 
 
@@ -26,21 +25,20 @@ USER root
 RUN apk add --no-cache gcc python3-dev openssl openssl-dev
 
 
+
+
+
+
+
+
+
+
+
 RUN pip install --upgrade pip && \
     pip install build
 
-
-
-
-
-
 # Copy the current directory contents into the container at /app
 COPY . .
-
-
-
-
-
 
 # Build Admin UI
 RUN chmod +x docker/build_admin_ui.sh && ./docker/build_admin_ui.sh
@@ -85,23 +83,23 @@ RUN apk add --no-cache openssl
 WORKDIR /app
 # Copy the current directory contents into the container at /app
 COPY . .
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 RUN ls -la /app
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # Copy the built wheel from the builder stage to the runtime stage; assumes only one wheel file is present
 COPY --from=builder /app/dist/*.whl .

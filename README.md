@@ -9,8 +9,7 @@ This version is based on v1.67.4-stable litellm
     - `git clone https://github.com/cyverse/litellm-docker`
     - `git clone https://github.com/berriai/litellm`
 
-2. Copy and edit the .env_example
-    - `cd /opt/src/litellm-docker; cp .env_example .env`
+2. Edit the `/opt/src/litellm-docker/.env` file if needed
 
 3. Freshen/update litellm tags
     - `cd /opt/src/litellm`

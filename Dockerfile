@@ -12,10 +12,8 @@ ENV LITELLM_TAG=$LITELLM_TAG
 ARG LITELLM_BRANCH=main-v1.67.4-stable
 ENV LITELLM_BRANCH=$LITELLM_BRANCH
 
-ARG PATCH_VERSION=v1.67.4-stable-20250515
+ARG PATCH_VERSION=v1.67.4-stable-20250516
 ENV PATCH_VERSION=$PATCH_VERSION
-
-# or: FROM ghcr.io/berriai/litellm:main-v1.67.7-stable-source  (if one exists)
 
 # Set the working directory to /app
 WORKDIR /app
@@ -31,9 +29,6 @@ RUN apk add --no-cache git build-base \
     && git clone --depth=1 --branch $LITELLM_TAG https://github.com/BerriAI/litellm.git . \
     && git checkout -b $LITELLM_BRANCH
 
-# Copy the current directory contents into the container at /app
-# COPY . .
-
 # Apply the cyverse patches
 COPY ${PATCH_VERSION}-litellm.patch .
 RUN git apply ${PATCH_VERSION}-litellm.patch
@@ -41,6 +36,9 @@ RUN git apply ${PATCH_VERSION}-litellm.patch
 # rebuild the package
 RUN pip install --upgrade pip build \
     && python -m build
+
+# Copy the current directory contents into the container at /app
+# COPY . .
 
 # Build Admin UI
 RUN chmod +x docker/build_admin_ui.sh && ./docker/build_admin_ui.sh
@@ -73,7 +71,7 @@ ENV LITELLM_TAG=$LITELLM_TAG
 ARG LITELLM_BRANCH=main-v1.67.4-stable
 ENV LITELLM_BRANCH=$LITELLM_BRANCH
 
-ARG PATCH_VERSION=v1.67.4-stable-20250515
+ARG PATCH_VERSION=v1.67.4-stable-20250516
 ENV PATCH_VERSION=$PATCH_VERSION
 
 # Ensure runtime stage runs as root

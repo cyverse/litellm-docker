@@ -3,7 +3,6 @@ services:
   postgres:
     image: postgres:latest
     container_name: postgres
-    # use .env for environment variables
     env_file:
       - .env
     ports:
@@ -12,18 +11,14 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   litellm:
-    # can I use an .env file for the image name?
-    # image: docker.io/library/0250513-cyverse-v1.67.7-stable
-    image: docker.io/library/v1.67.4-stable-20250515
+    image: "docker.io/library/${DKR_IMAGE_TAG}"
     container_name: litellm
-    # use .env for environment variables
     env_file:
       - .env
     ports:
       - "4000:4000"
     depends_on:
       - postgres
-
 volumes:
   postgres_data:
     driver: local
