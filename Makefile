@@ -16,6 +16,9 @@ $(error DIR must contain "litellm-docker" (got "$(DIR)") )
 endif
 
 # DKR_IMAGE_TAG := v1.67.4-stable-20250515
+HARBOR_REGISTRY := harbor.cyverse.org
+# HARBOR_REPO := ${HARBOR_REGISTRY}/wilma/litellm
+HARBOR_REPO := ${HARBOR_REGISTRY}/verde-public/litellm
 
 .PHONY: build run
 
@@ -28,11 +31,11 @@ build:
 	-t ${DKR_IMAGE_TAG} .
 
 harbor-login:
-	docker login harbor.cyverse.org
+	docker login ${HARBOR_REGISTRY}
 
 harbor:
-	docker tag ${DKR_IMAGE_TAG} harbor.cyverse.org/wilma/litellm:${DKR_IMAGE_TAG}
-	docker push harbor.cyverse.org/wilma/litellm:${DKR_IMAGE_TAG}
+	docker tag ${DKR_IMAGE_TAG} ${HARBOR_REPO}:${DKR_IMAGE_TAG}
+	docker push ${HARBOR_REPO}:${DKR_IMAGE_TAG}
 
 build-mod:
 	docker build -f Dockerfile.mod -t ${DKR_IMAGE_TAG} .

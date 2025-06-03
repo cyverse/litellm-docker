@@ -55,8 +55,10 @@ NC='\033[0m' # No Color
 # [litellm_tmu_fix]      - Fixes team member delete budget / list team bug
 
 branches=(
-  "litellm_tmdc_fix"  # rebase this against MAIN_CO_BRANCH
-  "litellm_tmu_fix" # rebase this against litellm_team_member_update_fix
+  # "litellm_tmdc_fix"  # rebase this against MAIN_CO_BRANCH
+  # "litellm_tmu_fix" # rebase this against litellm_team_member_update_fix
+
+  "litellm_team_member_update_fix"
 )
 
 echo -e "${YELLOW}WARNING${NC}: This script will delete the branch ${TEST_BRANCH} if it exists and create a new one from ${MAIN_TAG}."
