@@ -31,7 +31,7 @@ RUN apk add --no-cache git build-base \
 
 # Apply the cyverse patches
 COPY ${PATCH_VERSION}-litellm.patch .
-RUN git apply ${PATCH_VERSION}-litellm.patch
+RUN git apply ${PATCH_VERSION}-litellm.patch --allow-empty
 
 # rebuild the package
 RUN pip install --upgrade pip build \
@@ -95,7 +95,7 @@ RUN apk add --no-cache git build-base \
 
 # Apply the cyverse patches
 COPY ${PATCH_VERSION}-litellm.patch .
-RUN git apply ${PATCH_VERSION}-litellm.patch
+RUN git apply ${PATCH_VERSION}-litellm.patch --allow-empty
 
 COPY --from=builder /app/docker/entrypoint.sh docker/.
 COPY --from=builder /app/docker/prod_entrypoint.sh docker/.

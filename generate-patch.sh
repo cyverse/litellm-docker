@@ -57,8 +57,7 @@ NC='\033[0m' # No Color
 branches=(
   # "litellm_tmdc_fix"  # rebase this against MAIN_CO_BRANCH
   # "litellm_tmu_fix" # rebase this against litellm_team_member_update_fix
-
-  "litellm_team_member_update_fix"
+  # "litellm_team_member_update_fix" ## merged 2025-06-04
 )
 
 echo -e "${YELLOW}WARNING${NC}: This script will delete the branch ${TEST_BRANCH} if it exists and create a new one from ${MAIN_TAG}."

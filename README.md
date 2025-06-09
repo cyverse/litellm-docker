@@ -1,6 +1,6 @@
 # LiteLLM image with custom patches for cyverse
 
-This version is based on v1.67.4-stable litellm
+This version is based on v1.72.2.rc litellm
 
 ### HOWTO
 
@@ -23,12 +23,12 @@ This version is based on v1.67.4-stable litellm
     - `git log` and double check the main branch this forked from is what you checkout to build from
 
 5. Identify latest version of litellm you want to use
-    - `git ls-remote --tags https://github.com/BerriAI/litellm.git | grep -e 'v1\.6[7-9]'`
+    - `git ls-remote --tags https://github.com/BerriAI/litellm.git | grep -e 'v1\.[6-7][1-9]'`
 
 6. Edit generate-patch.sh
     - update MAIN_TAG to version you want to create (v1.67.4-stable)
     - update `branches` array if adding or removing additional branches
-    - Build patch `cd /opt/src/litellm-docker; ./generate-patch.sh` -> v1.67.4-stable-20250515-litellm.patch
+    - Build patch `cd /opt/src/litellm-docker; ./generate-patch.sh` -> v1.XX.Y-stable-YYYYMMDD-litellm.patch
 
 7. Update Dockerfile if needed:
     - Make sure `PATCH_VERSION` var matches the patch generated

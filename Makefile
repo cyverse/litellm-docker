@@ -41,10 +41,8 @@ build-mod:
 	docker build -f Dockerfile.mod -t ${DKR_IMAGE_TAG} .
 
 run:
-	docker run -it --rm \
-	-p 4000:4000 \
-	--env-file .env \
-	--name docker.io/library/${DKR_IMAGE_TAG}
+	@echo "Running litellm container with tag ${DKR_IMAGE_TAG}"
+	@docker run -it --rm -p 4000:4000 --env-file .env docker.io/library/${DKR_IMAGE_TAG}
 
 dkr-shell:
 	docker compose exec -it litellm bash
